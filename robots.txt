@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://bytev0rtex.github.io/sitemap.xml
