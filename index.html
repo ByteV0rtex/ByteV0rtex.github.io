@@ -1,0 +1,640 @@
+<title>ByteV0rtex</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" id="meta-desc" content="ByteV0rtex — iOS kernel security researcher. CVE PoCs for iOS 26.6: IOGPUFamily UAF, AppleKeyStore OOB read, setxattr PAC bypass, getattrlist OOB write.">
+<meta name="author" content="ByteV0rtex">
+<meta name="robots" content="index, follow">
+<link rel="canonical" id="canonical" href="https://bytev0rtex.github.io/">
+<meta property="og:type" content="website">
+<meta property="og:url" id="og-url" content="https://bytev0rtex.github.io/">
+<meta property="og:title" id="og-title" content="ByteV0rtex — iOS Kernel Security Research">
+<meta property="og:description" id="og-desc" content="CVE PoCs for iOS 26.6 (23G71): IOGPUFamily UAF, AppleKeyStore OOB read, setxattr PAC bypass, getattrlist OOB write.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:site" content="@ByteV0rtex">
+<meta name="twitter:creator" content="@ByteV0rtex">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Person","@id":"https://bytev0rtex.github.io/#person","name":"ByteV0rtex","url":"https://bytev0rtex.github.io/","sameAs":["https://github.com/ByteV0rtex","https://x.com/ByteV0rtex"],"jobTitle":"Security Researcher","knowsAbout":["iOS kernel security","ARM64e","PAC","IOKit","reverse engineering"]}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+:root {
+  --bg:          #0a0c0f;
+  --surface:     #11151b;
+  --surface2:    #171c24;
+  --border:      #1d2530;
+  --accent:      #00c9a7;
+  --accent-dim:  rgba(0,201,167,0.1);
+  --text:        #dde3ec;
+  --muted:       #566577;
+  --faint:       #242e3a;
+  --link:        #00c9a7;
+  --f-display:   'Syne', system-ui, sans-serif;
+  --f-body:      'DM Sans', system-ui, sans-serif;
+  --f-mono:      'JetBrains Mono', 'Menlo', monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f1f4f8; --surface: #fff; --surface2: #f7f9fc; --border: #d2dae4;
+    --accent: #007a63; --accent-dim: rgba(0,122,99,0.08);
+    --text: #0d1117; --muted: #5a6b7d; --faint: #d0d8e2; --link: #007a63;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f1f4f8; --surface: #fff; --surface2: #f7f9fc; --border: #d2dae4;
+  --accent: #007a63; --accent-dim: rgba(0,122,99,0.08);
+  --text: #0d1117; --muted: #5a6b7d; --faint: #d0d8e2; --link: #007a63;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--f-body); font-size: 1rem; line-height: 1.65; -webkit-font-smoothing: antialiased; min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+code { font-family: var(--f-mono); font-size: 0.82em; background: var(--faint); color: var(--text); padding: 0.1em 0.35em; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+.shell { max-width: 860px; margin: 0 auto; padding: 0 1.5rem; width: 100%; }
+
+/* ── Header ─────────────────────────────────────────────────────── */
+header {
+  position: sticky; top: 0; z-index: 100;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; height: 3.25rem; }
+.nav-logo { font-family: var(--f-display); font-weight: 800; font-size: 1rem; color: var(--text); letter-spacing: -0.01em; white-space: nowrap; }
+.nav-logo:hover { text-decoration: none; color: var(--text); }
+.nav-links { display: flex; align-items: center; gap: 0.25rem; list-style: none; overflow-x: auto; -ms-overflow-style: none; scrollbar-width: none; }
+.nav-links::-webkit-scrollbar { display: none; }
+.nav-links a { display: block; padding: 0.35rem 0.65rem; font-size: 0.85rem; font-weight: 500; color: var(--muted); border-radius: 4px; white-space: nowrap; transition: color 0.15s, background 0.15s; }
+.nav-links a:hover { color: var(--text); text-decoration: none; background: var(--surface); }
+.nav-links a.active { color: var(--text); background: var(--surface); }
+
+/* ── Main ───────────────────────────────────────────────────────── */
+main { flex: 1; }
+#view { animation: fadeIn 0.18s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+/* ── Hero ───────────────────────────────────────────────────────── */
+.hero { padding: 5rem 0 4rem; border-bottom: 1px solid var(--border); }
+.hero-eyebrow { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin-bottom: 1.25rem; }
+.hero h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(2.5rem,6vw,3.75rem); line-height: 1.05; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; margin-bottom: 1.25rem; }
+.hero-sub { font-size: 1.05rem; color: var(--muted); max-width: 50ch; line-height: 1.6; }
+.hero-sub strong { color: var(--text); font-weight: 500; }
+.hero-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 2rem; }
+.btn { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.65rem 1.4rem; font-size: 0.875rem; font-weight: 600; border-radius: 4px; transition: background 0.15s, border-color 0.15s; text-decoration: none; white-space: nowrap; background: var(--accent); color: #fff; border: 1px solid transparent; }
+.btn:hover { background: color-mix(in srgb, var(--accent) 82%, #000 18%); text-decoration: none; }
+.btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
+.btn-ghost:hover { background: var(--surface); border-color: var(--accent); color: var(--text); }
+
+/* ── Sections ───────────────────────────────────────────────────── */
+.section { padding: 3.5rem 0; }
+.section + .section { border-top: 1px solid var(--border); }
+.section-eyebrow { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
+.section-title { font-family: var(--f-display); font-weight: 700; font-size: 1.45rem; letter-spacing: -0.02em; color: var(--text); margin-bottom: 1.75rem; text-wrap: balance; }
+.section-body { font-size: 0.95rem; color: var(--muted); max-width: 62ch; line-height: 1.7; display: flex; flex-direction: column; gap: 1rem; }
+.section-body p strong { color: var(--text); font-weight: 500; }
+
+/* ── CVE grid ───────────────────────────────────────────────────── */
+.cve-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+@media (max-width: 580px) { .cve-grid { grid-template-columns: 1fr; } }
+.cve-card { background: var(--surface); padding: 1.6rem 1.6rem 1.4rem; display: flex; flex-direction: column; gap: 0.6rem; position: relative; transition: background 0.15s; text-decoration: none; color: inherit; }
+.cve-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--border); transition: background 0.15s; }
+.cve-card:hover { background: color-mix(in srgb, var(--surface) 80%, var(--accent) 20%); text-decoration: none; }
+.cve-card:hover::before { background: var(--accent); }
+.cve-card-id { font-family: var(--f-mono); font-size: 0.75rem; font-weight: 600; color: var(--accent); letter-spacing: 0.04em; }
+.cve-card-name { font-family: var(--f-display); font-weight: 700; font-size: 1rem; letter-spacing: -0.015em; color: var(--text); line-height: 1.25; }
+.cve-card-type { display: inline-block; font-family: var(--f-mono); font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.18em 0.5em; background: var(--accent-dim); color: var(--accent); border-radius: 2px; width: fit-content; }
+.cve-card-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.5; flex: 1; }
+.cve-card-credits { font-size: 0.72rem; color: var(--muted); margin-top: 0.25rem; }
+.cve-card-arrow { font-size: 0.8rem; color: var(--link); margin-top: auto; padding-top: 0.6rem; display: flex; align-items: center; gap: 0.3em; }
+.cve-card-arrow::after { content: '→'; transition: transform 0.15s; }
+.cve-card:hover .cve-card-arrow::after { transform: translateX(3px); }
+
+/* ── Info bar ───────────────────────────────────────────────────── */
+.info-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; padding: 0.9rem 1.25rem; background: var(--surface); border: 1px solid var(--border); border-top: none; font-size: 0.8rem; }
+.info-bar .k { font-family: var(--f-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.info-bar .v { font-family: var(--f-mono); font-size: 0.75rem; color: var(--text); }
+.info-bar .sep { color: var(--faint); }
+
+/* ── CVE detail ─────────────────────────────────────────────────── */
+.breadcrumb { font-family: var(--f-mono); font-size: 0.72rem; color: var(--muted); padding: 2rem 0 0; display: flex; align-items: center; gap: 0.4em; }
+.breadcrumb a { color: var(--muted); }
+.breadcrumb a:hover { color: var(--text); text-decoration: none; }
+.detail-header { padding: 2rem 0 2.5rem; border-bottom: 1px solid var(--border); }
+.detail-header .cve-id-large { font-family: var(--f-mono); font-size: 0.8rem; font-weight: 600; color: var(--accent); letter-spacing: 0.06em; margin-bottom: 0.75rem; }
+.detail-header h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(1.8rem,4vw,2.75rem); letter-spacing: -0.03em; color: var(--text); line-height: 1.1; text-wrap: balance; margin-bottom: 0.75rem; }
+.detail-badges { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.badge { font-family: var(--f-mono); font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.2em 0.55em; border-radius: 2px; }
+.badge-accent { background: var(--accent-dim); color: var(--accent); }
+.badge-muted { background: var(--faint); color: var(--muted); }
+.detail-body { padding: 2.5rem 0; display: flex; flex-direction: column; gap: 2.5rem; }
+.detail-section h2 { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text); margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.detail-section p, .detail-section li { font-size: 0.9rem; color: var(--muted); line-height: 1.7; }
+.detail-section ul { padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.detail-section li::marker { color: var(--accent); }
+.codeblock { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); padding: 1.1rem 1.25rem; overflow-x: auto; margin-top: 0.75rem; }
+.codeblock pre { font-family: var(--f-mono); font-size: 0.78rem; line-height: 1.65; color: var(--text); white-space: pre; }
+.credits-box { background: var(--surface); border: 1px solid var(--border); padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.credits-box .credit-label { font-family: var(--f-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.credits-box .credit-names { font-size: 0.875rem; color: var(--text); line-height: 1.5; }
+.btn-gh { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.25rem; background: var(--surface); border: 1px solid var(--border); font-size: 0.875rem; font-weight: 500; color: var(--text); border-radius: 4px; transition: border-color 0.15s, background 0.15s; width: fit-content; }
+.btn-gh:hover { border-color: var(--accent); background: var(--accent-dim); text-decoration: none; }
+
+/* ── About ──────────────────────────────────────────────────────── */
+.skill-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+@media (max-width: 480px) { .skill-grid { grid-template-columns: 1fr; } }
+.skill-cell { background: var(--surface); padding: 1rem 1.25rem; }
+.skill-cell-label { font-family: var(--f-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
+.skill-cell-items { font-size: 0.82rem; color: var(--text); line-height: 1.6; }
+
+/* ── Research chain ─────────────────────────────────────────────── */
+.chain { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--border); }
+.chain-step { display: flex; align-items: flex-start; gap: 1rem; padding: 1rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--border); position: relative; }
+.chain-step:last-child { border-bottom: none; }
+.chain-step::after { content: '↓'; position: absolute; bottom: -1px; left: 1.6rem; transform: translateY(50%); background: var(--bg); padding: 0 0.25rem; font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); z-index: 1; }
+.chain-step:last-child::after { display: none; }
+.chain-cve { font-family: var(--f-mono); font-size: 0.72rem; font-weight: 600; color: var(--accent); white-space: nowrap; padding-top: 0.1rem; min-width: 130px; }
+.chain-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.5; }
+.chain-desc strong { color: var(--text); font-weight: 500; }
+.chain-note { background: var(--surface2); border: 1px solid var(--border); padding: 0.9rem 1.25rem; margin-top: 1px; font-size: 0.82rem; color: var(--muted); line-height: 1.6; }
+.chain-note strong { color: var(--text); font-weight: 500; }
+
+/* ── Projects ───────────────────────────────────────────────────── */
+.project-list { border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; background: var(--border); }
+.project-item { background: var(--surface); padding: 1.4rem 1.5rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; transition: background 0.15s; }
+.project-item:hover { background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%); }
+.project-name { font-family: var(--f-display); font-weight: 700; font-size: 1rem; letter-spacing: -0.01em; color: var(--text); margin-bottom: 0.25rem; }
+.project-desc { font-size: 0.83rem; color: var(--muted); line-height: 1.5; }
+.project-tag { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.06em; color: var(--muted); white-space: nowrap; padding-top: 0.2rem; }
+
+/* ── Contact ────────────────────────────────────────────────────── */
+.contact-block { background: var(--surface); border: 1px solid var(--border); padding: 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
+.contact-block p { font-size: 0.92rem; color: var(--muted); max-width: 50ch; line-height: 1.65; }
+
+/* ── Page header ────────────────────────────────────────────────── */
+.page-header { padding: 3.5rem 0 3rem; border-bottom: 1px solid var(--border); }
+.page-header h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(2rem,5vw,3rem); letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
+
+/* ── Home research list ─────────────────────────────────────────── */
+.research-list { border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; background: var(--border); }
+.research-row { background: var(--surface); display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; text-decoration: none; color: inherit; transition: background 0.15s; position: relative; }
+.research-row::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--border); transition: background 0.15s; }
+.research-row:hover { background: color-mix(in srgb, var(--surface) 82%, var(--accent) 18%); text-decoration: none; }
+.research-row:hover::before { background: var(--accent); }
+.research-row-id { font-family: var(--f-mono); font-size: 0.75rem; font-weight: 600; color: var(--accent); min-width: 140px; }
+.research-row-name { font-size: 0.88rem; color: var(--text); font-weight: 500; flex: 1; }
+.research-row-type { font-family: var(--f-mono); font-size: 0.65rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.research-row-arrow { color: var(--link); font-size: 0.8rem; transition: transform 0.15s; }
+.research-row:hover .research-row-arrow { transform: translateX(3px); }
+
+/* ── Home quick links ───────────────────────────────────────────── */
+.home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+@media (max-width: 480px) { .home-grid { grid-template-columns: 1fr; } }
+.home-card { background: var(--surface); padding: 1.25rem 1.5rem; text-decoration: none; color: inherit; transition: background 0.15s; display: flex; flex-direction: column; gap: 0.35rem; }
+.home-card:hover { background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%); text-decoration: none; }
+.home-card-label { font-family: var(--f-mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.home-card-title { font-family: var(--f-display); font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; color: var(--text); }
+.home-card-sub { font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+footer { border-top: 1px solid var(--border); padding: 2rem 0; margin-top: auto; }
+.footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.footer-name { font-family: var(--f-display); font-weight: 700; font-size: 0.85rem; color: var(--muted); }
+.footer-links { display: flex; gap: 1.25rem; list-style: none; }
+.footer-links a { font-size: 0.8rem; color: var(--muted); transition: color 0.15s; }
+.footer-links a:hover { color: var(--text); text-decoration: none; }
+</style>
+
+<header>
+  <div class="shell">
+    <nav class="nav-inner">
+      <a href="/" class="nav-logo" data-spa>ByteV0rtex</a>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="/about" data-spa>About</a></li>
+        <li><a href="/research" data-spa>Research</a></li>
+        <li><a href="/cves" data-spa>CVEs</a></li>
+        <li><a href="/projects" data-spa>Projects</a></li>
+        <li><a href="/contact" data-spa>Contact</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div id="view"></div>
+</main>
+
+<footer>
+  <div class="shell">
+    <div class="footer-inner">
+      <span class="footer-name">ByteV0rtex</span>
+      <ul class="footer-links">
+        <li><a href="https://github.com/ByteV0rtex" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://x.com/ByteV0rtex" target="_blank" rel="noopener">X / Twitter</a></li>
+        <li><a href="/cves" data-spa>CVE Research</a></li>
+        <li><a href="/contact" data-spa>Contact</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script>
+const CVE_DATA = {
+  'CVE-2026-64788': {
+    component: 'IOGPUFamily',
+    subtitle: 'Use-After-Free',
+    type: 'UAF · Kernel',
+    affected: 'iOS / iPadOS 26.6 (23G71)',
+    fixed: 'iOS / iPadOS 26.6.1 (23G83)',
+    credits: 'f00l (@PPPF00L), 3ndy1 (@_3ndy1), Minghao Lin (@Y1nkoc), 云散花折, Arjanit Isufi',
+    desc: '<code>create_resource_iosurface</code> allocates an IOGPUSysMemory object then jumps to the error path on dimension overflow without releasing it — leaving a stale resource table entry. UAF dereference confirmed via <code>set_resource_purgeable</code> return-code change on A14.',
+    rootCause: `IOGPUDevice::create_resource_iosurface:
+  kalloc(0x100) → obj          ; IOGPUSysMemory, kalloc.256
+  table[new_id] = obj           ; registered with live reference
+  ADDS w_result, w_width, w_height
+  b.hs error_path               ; ← overflow: branches here
+error_path:
+  ; object NOT released — table entry NOT cleared
+  return kIOReturnInvalid`,
+    technical: [
+      '<strong>UAF dereference</strong> inside <code>set_resource_purgeable</code>: <code>+0x010c</code> — <code>ldaddl w9(-4), w8, [stale+0x24]</code> (atomic dec, w8=old value); <code>+0x0128</code> — if old≠0: <code>ldr x1,[stale+0x28]</code> → <code>IOGPUMemory::setAllocation</code>; <code>+0x0134</code> — <code>ldr x0,[stale+0x10]</code> → IOCommandGate arg.',
+      'The PoC sprays 0x300 × MTLBuffer(0x100, StorageModeShared) to fill the freed kalloc.256 slot. Zeroing <code>[+0x10]</code> and <code>[+0x24]</code> in the spray payload skips Call2 and Call3 safely.',
+      '<strong>Detection:</strong> before the UAF, <code>set_resource_purgeable</code> on a nonexistent ID returns <code>0xe00002c2</code>. After spray reclaims the freed slot it returns <code>0xe0002be</code> — confirming attacker-controlled heap was processed.',
+      '<strong>iOS 26 zone sequestration:</strong> freed IOGPUSysMemory stays in a type-stable zone. <code>[stale+0x10]</code> and <code>[stale+0x18]</code> retain external refcounts and remain live after free — blocking escalation to a full kernel r/w primitive without a secondary primitive.',
+    ],
+    ghUrl: 'https://github.com/ByteV0rtex/CVE-2026-64788',
+  },
+  'CVE-2026-65343': {
+    component: 'AppleKeyStore',
+    subtitle: 'OOB Read → KASLR Defeat',
+    type: 'OOB Read · KASLR',
+    affected: 'iOS / iPadOS 26.6 (23G71)',
+    fixed: 'iOS / iPadOS 26.6.1 (23G83)',
+    credits: 'Drinor Selmanaj (Sentry), Surya Narayan Kushwaha',
+    desc: '<code>_LibSer_SEPControl_Deserialize</code> copies <code>declared_length</code> bytes without bounding it against remaining buffer size. Feed 0x800 → read ~0x7E8 bytes of adjacent kernel heap into userspace. ACM handle captured via DYLD_INTERPOSE on Security.framework\'s in-process IOKit call.',
+    rootCause: `_LibSer_SEPControl_Deserialize (affected path):
+  ldr  w2, [acm_msg + declared_length_offset]  ; user-controlled: 0x800
+  ; ← NO bounds check: w2 <= (msg_end - payload_ptr) MISSING
+  bl   copyout                                  ; copies w2 bytes to userspace`,
+    technical: [
+      '<strong>ACM handle capture:</strong> direct <code>IOServiceOpen("AppleKeyStore")</code> is sandbox-blocked on sideloaded apps. Security.framework calls <code>IOConnectCallMethod</code> in-process during SE key signing. DYLD_INTERPOSE on <code>__DATA,__interpose</code> intercepts this at dyld load time — before <code>__DATA_CONST</code> is made read-only. (fishhook writes to the GOT at runtime → SIGBUS on iOS 26.)',
+      '<strong>Chain:</strong> arm interpose → <code>SecKeyCreateSignature</code> → in-process IOKit call fires → capture <code>(conn, handle[16])</code> → replay with <code>declared_length=0x800</code> across 163 AKS selectors → scan output for <code>0xfffffff0xxxxxxxx</code> kptrs → compute KASLR slide.',
+      '<strong>Fallback:</strong> if SE key is routed through <code>secd</code> XPC, zero-handle probe confirms OOB reachability (all selectors fail ACM validation, but the copyout path executes).',
+    ],
+    ghUrl: 'https://github.com/ByteV0rtex/CVE-2026-65343',
+  },
+  'CVE-2026-65330': {
+    component: 'XNU VFS — tmpfs VNOP',
+    subtitle: 'Fixed PAC Diversifier',
+    type: 'PAC Bypass · PC Control',
+    affected: 'iOS / iPadOS 26.6 (23G71)',
+    fixed: 'iOS / iPadOS 26.6.1 (23G83)',
+    credits: 'Bhaswanth Chigurupati, Billy Jheng Bing Jhong, Pan Zhenpeng (@Peterpan0927) of STAR Labs SG Pte. Ltd.',
+    desc: '<code>default_setxattr_doubleagent</code> signs the xattr handler pointer with a fixed compile-time diversifier <code>#0x307a</code>. With the known diversifier, any PACIA-forged pointer authenticates — giving PC control via any <code>setxattr()</code> call on tmpfs from a kernel write primitive.',
+    rootCause: `default_setxattr_doubleagent:
+  handler_ptr = vnode_operations[VNOP_SETXATTR_SLOT]
+  signed_ptr  = PACDA(handler_ptr, 0x307a)   ; ← fixed compile-time constant
+  ...
+  AUTDA(signed_ptr, 0x307a) → BLR            ; authenticate and branch`,
+    technical: [
+      '<strong>Exploit chain role:</strong> after a kernel write primitive (from CVE-2026-64788), forge <code>PACIA(shellcode_addr, 0x307a)</code> and write it into the target vnode\'s <code>vnode_operations[VNOP_SETXATTR_SLOT]</code>. Call <code>setxattr()</code> on any tmpfs file → kernel AUTDA(0x307a) passes → BLR shellcode.',
+      '<strong>Diversifier verified</strong> from kernelcache disassembly: <code>MOVZ x1, #0x307a</code> + <code>PACDA x0, x1</code> at the signing site; matching <code>AUTDA x0, x1</code> at the call site.',
+      '<strong>Standalone PoC</strong> demonstrates the VNOP pathway is reachable from userspace via a normal <code>setxattr()</code> syscall — does not forge any PAC pointer or overwrite kernel data.',
+    ],
+    ghUrl: 'https://github.com/ByteV0rtex/CVE-2026-65330',
+  },
+  'CVE-2026-65349': {
+    component: 'XNU VFS — getattrlist',
+    subtitle: 'OOB Write in vfs_attr_pack_internal',
+    type: 'OOB Write · Kernel Heap',
+    affected: 'iOS / iPadOS 26.6 (23G71)',
+    fixed: 'iOS / iPadOS 26.6.1 (23G83)',
+    credits: 'anonymous researcher',
+    desc: '<code>vfs_attr_pack_internal</code> writes attribute slot 51 at <code>buf+0x198</code> without a bounds check. On a 16-character filename with the full valid attribute mask, the kernel outputs 0x1a4 bytes regardless of <code>bufsize</code>.',
+    rootCause: `vfs_attr_pack_internal (affected path):
+  ; slot 51 write — no bounds check before store
+  str  x_attr_data, [caller_buf + 0x198]   ; OOB if bufsize < 0x1a0`,
+    technical: [
+      '<strong>Valid masks</strong> (verified on-device, iOS 26.6): <code>commonattr=0xffe7ffff</code> (bits 19, 20 invalid), <code>fileattr=0x0000363f</code>, <code>forkattr=0xffffe003</code>. On a 16-char filename these produce 0x1a4 bytes of output — slot 51 at buf+0x198 lies past the 0x198-byte mark.',
+      '<strong>PoC calls:</strong> (1) 64B buffer → OOB write 344B past end; (2) 0x198B buffer → write starts exactly at the end; (3) 0x1a4B buffer → clean success.',
+      '<strong>iOS 26 note:</strong> KHEAP_TEMP isolation prevents useful heap corruption from userspace. From kernel context (after CVE-2026-64788 kernel r/w), the write can place a PAC-signed pointer into an allocation adjacent to the caller buffer.',
+    ],
+    ghUrl: 'https://github.com/ByteV0rtex/CVE-2026-65349',
+  },
+};
+
+const CVE_ORDER = ['CVE-2026-64788','CVE-2026-65343','CVE-2026-65330','CVE-2026-65349'];
+const BASE = 'https://bytev0rtex.github.io';
+
+/* ── Meta ──────────────────────────────────────────────────────── */
+function setMeta(title, desc, path) {
+  document.title = title;
+  const url = BASE + (path || '/');
+  document.getElementById('meta-desc').content = desc;
+  document.getElementById('og-title').content = title;
+  document.getElementById('og-desc').content = desc;
+  document.getElementById('og-url').content = url;
+  document.getElementById('canonical').href = url;
+}
+
+/* ── Renderers ─────────────────────────────────────────────────── */
+function ghIcon() {
+  return `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+}
+
+function cveCardHTML(id, cve) {
+  return `<a class="cve-card" href="/cves/${id}" data-spa>
+    <div class="cve-card-id">${id}</div>
+    <div class="cve-card-name">${cve.component}<br><span style="font-weight:700">${cve.subtitle}</span></div>
+    <div class="cve-card-type">${cve.type}</div>
+    <div class="cve-card-desc">${cve.desc}</div>
+    <div class="cve-card-credits">Credited: ${cve.credits}</div>
+    <div class="cve-card-arrow">View PoC</div>
+  </a>`;
+}
+
+function infoBar() {
+  return `<div class="info-bar">
+    <span class="k">Affected</span><span class="v">iOS / iPadOS 26.6 (23G71)</span>
+    <span class="sep">·</span>
+    <span class="k">Fixed</span><span class="v">iOS / iPadOS 26.6.1 (23G83) — 2026-08-17</span>
+    <span class="sep">·</span>
+    <span class="k">Advisory</span><a href="https://support.apple.com/en-us/148282" target="_blank" rel="noopener" style="font-family:var(--f-mono);font-size:0.75rem;color:var(--link)">HT148282</a>
+  </div>`;
+}
+
+function renderHome() {
+  setMeta('ByteV0rtex — iOS Kernel Security Research', 'iOS kernel security researcher. CVE PoCs for iOS 26.6: IOGPUFamily UAF, AppleKeyStore OOB, setxattr PAC bypass, getattrlist OOB.', '/');
+  const cveRows = CVE_ORDER.map(id => {
+    const c = CVE_DATA[id];
+    return `<a class="research-row" href="/cves/${id}" data-spa>
+      <span class="research-row-id">${id}</span>
+      <span class="research-row-name">${c.component} — ${c.subtitle}</span>
+      <span class="research-row-type">${c.type}</span>
+      <span class="research-row-arrow">→</span>
+    </a>`;
+  }).join('');
+  return `<div class="shell">
+    <section class="hero">
+      <div class="hero-eyebrow">Security Research</div>
+      <h1>iOS Kernel<br>Vulnerability Research</h1>
+      <p class="hero-sub">Reverse engineering Apple's kernel and drivers. Focused on <strong>IOKit user clients</strong>, <strong>ARM64e PAC</strong>, and <strong>zone sequestration</strong> on iOS 26. All research targets patched releases.</p>
+      <div class="hero-actions">
+        <a class="btn" href="/research" data-spa>Read the research</a>
+        <a class="btn btn-ghost" href="/cves" data-spa>View CVE PoCs</a>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-eyebrow">2026 · iOS 26.6 (23G71)</div>
+      <div class="section-title">CVE Proof-of-Concepts</div>
+      <div class="research-list">${cveRows}</div>
+      <div style="margin-top:1rem;text-align:right"><a href="/cves" data-spa style="font-size:0.8rem;color:var(--link)">View all CVEs with full writeups →</a></div>
+    </section>
+    <section class="section">
+      <div class="section-eyebrow">Projects</div>
+      <div class="section-title">Other Work</div>
+      <div class="home-grid">
+        <a class="home-card" href="/projects" data-spa>
+          <span class="home-card-label">Hardware</span>
+          <span class="home-card-title">Cliqmod</span>
+          <span class="home-card-sub">Modular macro pad system — hot-swap modules, custom firmware</span>
+        </a>
+        <a class="home-card" href="/projects" data-spa>
+          <span class="home-card-label">macOS</span>
+          <span class="home-card-title">mac-soundboard</span>
+          <span class="home-card-sub">SwiftUI virtual audio device for multi-source routing</span>
+        </a>
+      </div>
+      <div style="margin-top:1rem;text-align:right"><a href="/projects" data-spa style="font-size:0.8rem;color:var(--link)">All projects →</a></div>
+    </section>
+  </div>`;
+}
+
+function renderAbout() {
+  setMeta('About — ByteV0rtex', 'Security researcher focused on iOS kernel exploitation, IOKit driver attack surfaces, and ARM64e pointer authentication.', '/about');
+  return `<div class="shell">
+    <div class="page-header"><h1>About</h1></div>
+    <section class="section">
+      <div class="section-body">
+        <p>Security researcher focused on <strong>Apple platform internals</strong> — specifically iOS kernel exploitation, IOKit driver attack surfaces, and ARM64e pointer authentication. Most published work targets patched vulnerabilities on released iOS versions.</p>
+        <p>Beyond security research I build things: <strong>Cliqmod</strong> is a modular macro pad system, <strong>mac-soundboard</strong> is a SwiftUI virtual audio device for macOS. I like understanding how systems work at the level where software meets hardware.</p>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-eyebrow">Expertise</div>
+      <div class="section-title">Skills &amp; Focus Areas</div>
+      <div class="skill-grid">
+        <div class="skill-cell"><div class="skill-cell-label">Kernel</div><div class="skill-cell-items">XNU internals, IOKit, zone allocator, KHEAP isolation, VFS/VNOP</div></div>
+        <div class="skill-cell"><div class="skill-cell-label">Architecture</div><div class="skill-cell-items">ARM64e, PAC (PACIA/PACDA/AUTIA/AUTDA), pointer signing &amp; forgery</div></div>
+        <div class="skill-cell"><div class="skill-cell-label">Reverse Engineering</div><div class="skill-cell-items">Kernelcache analysis, kext diffing, IDA Pro, Binary Ninja, LLDB</div></div>
+        <div class="skill-cell"><div class="skill-cell-label">Exploitation</div><div class="skill-cell-items">UAF, OOB r/w, heap spray, DYLD_INTERPOSE, KASLR defeat</div></div>
+        <div class="skill-cell"><div class="skill-cell-label">Platforms</div><div class="skill-cell-items">iOS / iPadOS, macOS, Swift, Objective-C, C</div></div>
+        <div class="skill-cell"><div class="skill-cell-label">Hardware</div><div class="skill-cell-items">Firmware, embedded C, PCB design, custom HID devices</div></div>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-eyebrow">Links</div>
+      <div class="section-title">Find me online</div>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+        <a class="btn-gh" href="https://github.com/ByteV0rtex" target="_blank" rel="noopener">${ghIcon()} github.com/ByteV0rtex</a>
+        <a class="btn-gh" href="https://x.com/ByteV0rtex" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> @ByteV0rtex</a>
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderResearch() {
+  setMeta('Research — ByteV0rtex', 'iOS 26.6 kernel exploitation research: 3-CVE chain analysis, zone sequestration findings, and standalone CVE documentation.', '/research');
+  return `<div class="shell">
+    <div class="page-header"><h1>Research</h1></div>
+    <section class="section">
+      <div class="section-eyebrow">2026 · A14 Bionic · iOS 26.6 (23G71)</div>
+      <div class="section-title">iOS 26.6 Kernel Exploitation</div>
+      <div class="section-body">
+        <p>Research into a 3-CVE privilege escalation chain for iOS 26.6 on A14 Bionic (iPhone 12), targeting a patched version — iOS 26.6.1 shipped fixes on 2026-08-17.</p>
+        <p>The planned chain: GPU UAF to establish kernel r/w, then a PAC bypass via a fixed diversifier to gain PC control and escalate to root. KASLR was defeated via an AppleKeyStore OOB read. Each CVE was individually documented and published as a standalone PoC.</p>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-eyebrow">Exploitation Path</div>
+      <div class="section-title">The Chain</div>
+      <div class="chain">
+        <div class="chain-step">
+          <div class="chain-cve">CVE-2026-65343</div>
+          <div class="chain-desc"><strong>KASLR defeat</strong> — AppleKeyStore OOB read leaks adjacent kernel heap pointers. ACM handle captured in-process via DYLD_INTERPOSE on Security.framework.</div>
+        </div>
+        <div class="chain-step">
+          <div class="chain-cve">CVE-2026-64788</div>
+          <div class="chain-desc"><strong>Kernel r/w (target)</strong> — IOGPUFamily UAF in <code>create_resource_iosurface</code>. Dimension overflow skips object release; stale table entry enables attacker-controlled dereference. UAF confirmed; kernel r/w blocked by iOS 26 zone sequestration.</div>
+        </div>
+        <div class="chain-step">
+          <div class="chain-cve">CVE-2026-65349</div>
+          <div class="chain-desc"><strong>Kernel heap write</strong> — getattrlist OOB write in <code>vfs_attr_pack_internal</code> (slot 51 at buf+0x198). From kernel context, places a PAC-signed pointer into an adjacent allocation.</div>
+        </div>
+        <div class="chain-step">
+          <div class="chain-cve">CVE-2026-65330</div>
+          <div class="chain-desc"><strong>PC control → root</strong> — Fixed PAC diversifier <code>#0x307a</code> in <code>default_setxattr_doubleagent</code> allows forging a kernel function pointer. <code>setxattr()</code> on tmpfs → BLR shellcode.</div>
+        </div>
+      </div>
+      <div class="chain-note"><strong>Where it stopped:</strong> iOS 26 zone sequestration keeps freed IOGPUSysMemory objects in a type-stable zone. <code>[stale+0x10]</code> and <code>[stale+0x18]</code> retain external refcounts and remain live after free — MTLBuffer spray cannot escalate the confirmed UAF into kernel r/w without a secondary primitive.</div>
+    </section>
+  </div>`;
+}
+
+function renderCVEList() {
+  setMeta('CVEs — ByteV0rtex', 'Proof-of-concept repositories for CVE-2026-64788, CVE-2026-65330, CVE-2026-65343, CVE-2026-65349 on iOS 26.6.', '/cves');
+  return `<div class="shell">
+    <div class="page-header"><h1>CVEs</h1></div>
+    <section class="section">
+      <div class="section-eyebrow">iOS / iPadOS 26.6 (23G71) · Fixed 26.6.1</div>
+      <div class="section-title">Proof-of-Concept Repositories</div>
+      <div class="cve-grid">${CVE_ORDER.map(id => cveCardHTML(id, CVE_DATA[id])).join('')}</div>
+      ${infoBar()}
+    </section>
+  </div>`;
+}
+
+function renderCVEDetail(id) {
+  const cve = CVE_DATA[id];
+  if (!cve) return renderCVEList();
+  setMeta(`${id} PoC — ByteV0rtex`, `${cve.component} ${cve.subtitle} — ${cve.affected}. ${cve.type}. Research by ByteV0rtex.`, `/cves/${id}`);
+  const technical = cve.technical.map(t => `<p>${t}</p>`).join('');
+  return `<div class="shell">
+    <div class="breadcrumb"><a href="/cves" data-spa>CVEs</a> <span style="color:var(--faint)">›</span> <span>${id}</span></div>
+    <div class="detail-header">
+      <div class="cve-id-large">${id}</div>
+      <h1>${cve.component}<br>${cve.subtitle}</h1>
+      <div class="detail-badges">
+        <span class="badge badge-accent">${cve.type}</span>
+        <span class="badge badge-muted">${cve.affected}</span>
+        <span class="badge badge-muted">Fixed: ${cve.fixed}</span>
+      </div>
+    </div>
+    <div class="detail-body">
+      <div class="detail-section">
+        <h2>Root Cause</h2>
+        <div class="codeblock"><pre>${cve.rootCause}</pre></div>
+      </div>
+      <div class="detail-section">
+        <h2>Technical Notes</h2>
+        ${technical}
+      </div>
+      <div class="detail-section">
+        <h2>Credits</h2>
+        <div class="credits-box">
+          <div class="credit-label">Discovered by</div>
+          <div class="credit-names">${cve.credits}</div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:0.25rem">per <a href="https://support.apple.com/en-us/148282" target="_blank" rel="noopener">Apple Security Advisory — iOS 26.6.1</a></div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <h2>PoC Repository</h2>
+        <a class="btn-gh" href="${cve.ghUrl}" target="_blank" rel="noopener">${ghIcon()} View on GitHub</a>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderProjects() {
+  setMeta('Projects — ByteV0rtex', 'Cliqmod modular macro pad system and mac-soundboard SwiftUI virtual audio device for macOS.', '/projects');
+  return `<div class="shell">
+    <div class="page-header"><h1>Projects</h1></div>
+    <section class="section">
+      <div class="project-list">
+        <div class="project-item">
+          <div>
+            <div class="project-name">Cliqmod</div>
+            <div class="project-desc">Modular, ultra-customizable macro pad system. Swap modules, remap keys, chain actions. Open-source firmware and schematics.</div>
+          </div>
+          <div class="project-tag">Hardware / Firmware</div>
+        </div>
+        <div class="project-item">
+          <div>
+            <div class="project-name">mac-soundboard</div>
+            <div class="project-desc">SwiftUI macOS soundboard that mixes sounds and mic into a virtual audio device with global hotkeys for any app.</div>
+          </div>
+          <div class="project-tag">Swift / macOS</div>
+        </div>
+      </div>
+    </section>
+  </div>`;
+}
+
+function renderContact() {
+  setMeta('Contact — ByteV0rtex', 'Get in touch with ByteV0rtex via GitHub.', '/contact');
+  return `<div class="shell">
+    <div class="page-header"><h1>Contact</h1></div>
+    <section class="section">
+      <div class="contact-block">
+        <p>The best way to reach me is through <strong>GitHub</strong> — open an issue or discussion on any of my repos. You can also find me on <strong>X</strong> at @ByteV0rtex.</p>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+          <a class="btn-gh" href="https://github.com/ByteV0rtex" target="_blank" rel="noopener">${ghIcon()} github.com/ByteV0rtex</a>
+          <a class="btn-gh" href="https://x.com/ByteV0rtex" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> @ByteV0rtex</a>
+        </div>
+      </div>
+    </section>
+  </div>`;
+}
+
+/* ── Router ────────────────────────────────────────────────────── */
+function navigate(path) {
+  const p = path || '/';
+  let html;
+  if (p === '/' || p === '') html = renderHome();
+  else if (p === '/about') html = renderAbout();
+  else if (p === '/research') html = renderResearch();
+  else if (p === '/cves') html = renderCVEList();
+  else if (p.startsWith('/cves/')) html = renderCVEDetail(p.slice(6));
+  else if (p === '/projects') html = renderProjects();
+  else if (p === '/contact') html = renderContact();
+  else html = renderHome();
+
+  const view = document.getElementById('view');
+  view.style.opacity = '0';
+  view.style.transition = 'opacity 0.12s';
+  setTimeout(() => {
+    view.innerHTML = html;
+    view.style.opacity = '1';
+    window.scrollTo(0, 0);
+  }, 80);
+
+  document.querySelectorAll('#nav-links a').forEach(a => {
+    const href = a.getAttribute('href');
+    const active = href === p || (href !== '/' && p.startsWith(href));
+    a.classList.toggle('active', active);
+  });
+}
+
+function go(path) {
+  history.pushState(null, '', path);
+  navigate(path);
+}
+
+/* Intercept all [data-spa] clicks */
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-spa]');
+  if (!a) return;
+  e.preventDefault();
+  go(a.getAttribute('href'));
+});
+
+window.addEventListener('popstate', () => navigate(location.pathname));
+
+window.addEventListener('DOMContentLoaded', () => {
+  /* Restore path saved by 404.html */
+  const redirect = sessionStorage.getItem('spa_redirect');
+  if (redirect && redirect !== '/') {
+    sessionStorage.removeItem('spa_redirect');
+    history.replaceState(null, '', redirect);
+    navigate(redirect);
+  } else {
+    navigate(location.pathname);
+  }
+});
+</script>
