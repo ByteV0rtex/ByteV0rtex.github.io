@@ -567,13 +567,14 @@ function renderProjects() {
 }
 
 function renderContact() {
-  setMeta('Contact — ByteV0rtex', 'Get in touch with ByteV0rtex via GitHub.', '/contact');
+  setMeta('Contact — ByteV0rtex', 'Get in touch with ByteV0rtex by email at contact@bytev0rtex.com, or via GitHub and X.', '/contact');
   return `<div class="shell">
     <div class="page-header"><h1>Contact</h1></div>
     <section class="section">
       <div class="contact-block">
-        <p>The best way to reach me is through <strong>GitHub</strong> — open an issue or discussion on any of my repos. You can also find me on <strong>X</strong> at @ByteV0rtex.</p>
+        <p>The best way to reach me is by <strong>email</strong> at <a href="mailto:contact@bytev0rtex.com">contact@bytev0rtex.com</a> — for security reports, collaboration, or anything else. You can also reach me on <strong>GitHub</strong> (open an issue or discussion on any repo) or <strong>X</strong> at @ByteV0rtex.</p>
         <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+          <a class="btn-gh" href="mailto:contact@bytev0rtex.com"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 6 10 7 10-7"/></svg> contact@bytev0rtex.com</a>
           <a class="btn-gh" href="https://github.com/ByteV0rtex" target="_blank" rel="noopener">${ghIcon()} github.com/ByteV0rtex</a>
           <a class="btn-gh" href="https://x.com/ByteV0rtex" target="_blank" rel="noopener"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> @ByteV0rtex</a>
         </div>
